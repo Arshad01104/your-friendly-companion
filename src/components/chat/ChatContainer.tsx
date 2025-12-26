@@ -1,9 +1,12 @@
-import { FC, useRef, useEffect, useState } from "react";
+import { FC, useRef, useEffect, useState, useCallback } from "react";
+import { Volume2, VolumeX } from "lucide-react";
 import ChatHeader from "./ChatHeader";
 import MessageBubble from "./MessageBubble";
 import TypingIndicator from "./TypingIndicator";
 import ChatInput from "./ChatInput";
 import { streamChat } from "@/utils/streamChat";
+import { speakText, stopSpeaking } from "@/utils/textToSpeech";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useToast } from "@/hooks/use-toast";
 
 interface Message {
@@ -32,8 +35,27 @@ const ChatContainer: FC = () => {
   ]);
   const [isTyping, setIsTyping] = useState(false);
   const [status, setStatus] = useState<"online" | "typing" | "offline">("online");
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const assistantContentRef = useRef("");
+
+  const handleVoiceResult = useCallback((transcript: string) => {
+    if (transcript.trim()) {
+      handleSendMessage(transcript);
+    }
+  }, []);
+
+  const { 
+    isListening, 
+    transcript, 
+    startListening, 
+    stopListening, 
+    isSupported: voiceInputSupported 
+  } = useSpeechRecognition({
+    onResult: handleVoiceResult,
+    lang: "hi-IN",
+  });
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -43,7 +65,37 @@ const ChatContainer: FC = () => {
     scrollToBottom();
   }, [messages, isTyping]);
 
+  const handleToggleListening = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      stopSpeaking();
+      startListening();
+    }
+  };
+
+  const toggleVoiceOutput = () => {
+    if (isSpeaking) {
+      stopSpeaking();
+      setIsSpeaking(false);
+    }
+    setVoiceEnabled(!voiceEnabled);
+    toast({
+      title: voiceEnabled ? "Voice output disabled" : "Voice output enabled",
+      description: voiceEnabled ? "Aisha will only type responses" : "Aisha will speak her responses",
+    });
+  };
+
   const handleSendMessage = async (content: string) => {
+    // Stop listening if we're sending a message
+    if (isListening) {
+      stopListening();
+    }
+    
+    // Stop any current speech
+    stopSpeaking();
+    setIsSpeaking(false);
+
     const userMessage: Message = {
       id: Date.now().toString(),
       content,
@@ -64,22 +116,23 @@ const ChatContainer: FC = () => {
     }));
     conversationHistory.push({ role: "user", content });
 
+    let fullResponse = "";
+
     await streamChat({
       messages: conversationHistory,
       onDelta: (chunk) => {
         assistantContentRef.current += chunk;
+        fullResponse = assistantContentRef.current;
         
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (last && !last.isUser) {
-            // Update existing assistant message
             return prev.map((m, i) =>
               i === prev.length - 1
                 ? { ...m, content: assistantContentRef.current }
                 : m
             );
           }
-          // Create new assistant message
           return [
             ...prev,
             {
@@ -92,15 +145,26 @@ const ChatContainer: FC = () => {
           ];
         });
       },
-      onDone: () => {
+      onDone: async () => {
         setIsTyping(false);
         setStatus("online");
+        
+        // Speak the response if voice is enabled
+        if (voiceEnabled && fullResponse) {
+          try {
+            setIsSpeaking(true);
+            await speakText(fullResponse);
+          } catch (error) {
+            console.error("TTS error:", error);
+          } finally {
+            setIsSpeaking(false);
+          }
+        }
       },
       onError: (errorMessage) => {
         setIsTyping(false);
         setStatus("online");
         
-        // Add error as Aisha's message in her style
         setMessages((prev) => [
           ...prev,
           {
@@ -123,7 +187,26 @@ const ChatContainer: FC = () => {
 
   return (
     <div className="flex flex-col h-screen max-h-screen gradient-soft">
-      <ChatHeader name={COMPANION_NAME} status={status} />
+      <ChatHeader 
+        name={COMPANION_NAME} 
+        status={status} 
+        isSpeaking={isSpeaking}
+        rightElement={
+          <button
+            onClick={toggleVoiceOutput}
+            className={`p-2 rounded-full transition-colors duration-200 ${
+              voiceEnabled ? "bg-primary/10 text-primary" : "hover:bg-secondary text-muted-foreground"
+            }`}
+            title={voiceEnabled ? "Disable voice output" : "Enable voice output"}
+          >
+            {voiceEnabled ? (
+              <Volume2 className="w-5 h-5" />
+            ) : (
+              <VolumeX className="w-5 h-5" />
+            )}
+          </button>
+        }
+      />
 
       <main className="flex-1 overflow-y-auto px-4 py-6">
         <div className="max-w-4xl mx-auto">
@@ -141,7 +224,14 @@ const ChatContainer: FC = () => {
         </div>
       </main>
 
-      <ChatInput onSend={handleSendMessage} disabled={isTyping} />
+      <ChatInput 
+        onSend={handleSendMessage} 
+        disabled={isTyping} 
+        isListening={isListening}
+        onToggleListening={handleToggleListening}
+        isVoiceSupported={voiceInputSupported}
+        interimTranscript={transcript}
+      />
     </div>
   );
 };
