@@ -1,9 +1,9 @@
 import { FC, useRef, useEffect, useState, useCallback } from "react";
-import { Volume2, VolumeX } from "lucide-react";
+import { Volume2, VolumeX, Trash2 } from "lucide-react";
 import ChatHeader from "./ChatHeader";
 import MessageBubble from "./MessageBubble";
 import TypingIndicator from "./TypingIndicator";
-import ChatInput from "./ChatInput";
+import VoiceControl from "./VoiceControl";
 import { streamChat } from "@/utils/streamChat";
 import { speakText, stopSpeaking } from "@/utils/textToSpeech";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
@@ -83,6 +83,23 @@ const ChatContainer: FC = () => {
     toast({
       title: voiceEnabled ? "Voice output disabled" : "Voice output enabled",
       description: voiceEnabled ? "Aisha will only type responses" : "Aisha will speak her responses",
+    });
+  };
+
+  const clearHistory = () => {
+    stopSpeaking();
+    setIsSpeaking(false);
+    setMessages([
+      {
+        id: Date.now().toString(),
+        content: "Hey! Kya haal hai? Main Aisha hoon, tumhari virtual friend. 🌸\n\nBolo, kya chal raha hai aaj?",
+        isUser: false,
+        timestamp: formatTime(new Date()),
+      },
+    ]);
+    toast({
+      title: "Chat cleared",
+      description: "Starting fresh conversation with Aisha",
     });
   };
 
@@ -192,19 +209,28 @@ const ChatContainer: FC = () => {
         status={status} 
         isSpeaking={isSpeaking}
         rightElement={
-          <button
-            onClick={toggleVoiceOutput}
-            className={`p-2 rounded-full transition-colors duration-200 ${
-              voiceEnabled ? "bg-primary/10 text-primary" : "hover:bg-secondary text-muted-foreground"
-            }`}
-            title={voiceEnabled ? "Disable voice output" : "Enable voice output"}
-          >
-            {voiceEnabled ? (
-              <Volume2 className="w-5 h-5" />
-            ) : (
-              <VolumeX className="w-5 h-5" />
-            )}
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={clearHistory}
+              className="p-2 rounded-full hover:bg-secondary transition-colors duration-200 text-muted-foreground"
+              title="Clear chat history"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
+            <button
+              onClick={toggleVoiceOutput}
+              className={`p-2 rounded-full transition-colors duration-200 ${
+                voiceEnabled ? "bg-primary/10 text-primary" : "hover:bg-secondary text-muted-foreground"
+              }`}
+              title={voiceEnabled ? "Disable voice output" : "Enable voice output"}
+            >
+              {voiceEnabled ? (
+                <Volume2 className="w-5 h-5" />
+              ) : (
+                <VolumeX className="w-5 h-5" />
+              )}
+            </button>
+          </div>
         }
       />
 
@@ -224,14 +250,14 @@ const ChatContainer: FC = () => {
         </div>
       </main>
 
-      <ChatInput 
-        onSend={handleSendMessage} 
-        disabled={isTyping} 
-        isListening={isListening}
-        onToggleListening={handleToggleListening}
-        isVoiceSupported={voiceInputSupported}
-        interimTranscript={transcript}
-      />
+      {voiceInputSupported && (
+        <VoiceControl
+          isListening={isListening}
+          isSpeaking={isSpeaking}
+          disabled={isTyping}
+          onToggleListening={handleToggleListening}
+        />
+      )}
     </div>
   );
 };
